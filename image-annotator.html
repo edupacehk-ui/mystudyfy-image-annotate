@@ -6,109 +6,168 @@
     <title>Image Annotator</title>
     <style>
         body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
-        #canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: white; } /* White background for padded areas */
+        #canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: white; } /* White for padded areas */
+        #toolbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(255, 255, 255, 0.8); padding: 5px; border-radius: 5px; z-index: 10; display: flex; gap: 10px; }
+        #toolbar button, #toolbar select { padding: 5px; font-size: 14px; }
     </style>
 </head>
 <body>
     <canvas id="canvas"></canvas>
+    <div id="toolbar">
+        <button id="undo">Undo</button>
+        <button id="clear">Clear All</button>
+        <select id="color">
+            <option value="#000000">Black</option>
+            <option value="#FF0000">Red</option>
+            <option value="#0000FF">Blue</option>
+        </select>
+        <select id="thickness">
+            <option value="1">Thin</option>
+            <option value="2">Medium</option>
+            <option value="5">Thick</option>
+        </select>
+    </div>
     <script>
         const urlParams = new URLSearchParams(window.location.search);
-        const imageUrl = urlParams.get('image') || 'https://via.placeholder.com/800x600'; // Fallback image
+        const imageUrl = urlParams.get('image') || 'https://via.placeholder.com/800x600'; // Fallback
 
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
+        const undoBtn = document.getElementById('undo');
+        const clearBtn = document.getElementById('clear');
+        const colorSelect = document.getElementById('color');
+        const thicknessSelect = document.getElementById('thickness');
 
-        // Function to draw the image (called on load and resize)
-        function drawImage() {
+        let paths = []; // Array to store drawing paths for undo
+        let currentPath = [];
+        let drawing = false;
+        let strokeColor = '#000000';
+        let lineWidth = 2;
+
+        // Function to draw the image and all paths
+        function redraw() {
             // Resize canvas to full viewport
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
 
-            // Clear canvas (with white background via style)
+            // Clear canvas
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Calculate scaling to fit image while preserving aspect ratio
+            // Calculate scaling for image
             const imgAspect = img.width / img.height;
             const canvasAspect = canvas.width / canvas.height;
             let drawWidth, drawHeight, offsetX = 0, offsetY = 0;
 
             if (imgAspect > canvasAspect) {
-                // Image wider: fit width, center height
                 drawWidth = canvas.width;
                 drawHeight = canvas.width / imgAspect;
                 offsetY = (canvas.height - drawHeight) / 2;
             } else {
-                // Image taller: fit height, center width
                 drawHeight = canvas.height;
                 drawWidth = canvas.height * imgAspect;
                 offsetX = (canvas.width - drawWidth) / 2;
             }
 
-            // Draw scaled image, centered
+            // Draw image
             ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+
+            // Redraw all paths
+            paths.forEach(path => {
+                ctx.beginPath();
+                ctx.moveTo(path[0].x, path[0].y);
+                for (let i = 1; i < path.length; i++) {
+                    ctx.lineTo(path[i].x, path[i].y);
+                }
+                ctx.strokeStyle = path.strokeColor;
+                ctx.lineWidth = path.lineWidth;
+                ctx.stroke();
+            });
         }
 
         // Load the image
         const img = new Image();
-        img.crossOrigin = 'anonymous'; // Handle CORS
-        img.onload = drawImage;
+        img.crossOrigin = 'anonymous';
+        img.onload = redraw;
         img.src = imageUrl;
 
-        // Drawing functionality (using raw canvas coordinates)
-        let drawing = false;
-        let lastX = 0;
-        let lastY = 0;
-
-        function draw(e) {
-            if (!drawing) return;
+        // Start new path
+        function startPath(e) {
+            drawing = true;
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            currentPath = [{ x, y }];
             ctx.beginPath();
-            ctx.moveTo(lastX, lastY);
-            ctx.lineTo(e.offsetX, e.offsetY);
-            ctx.strokeStyle = '#000'; // Black pen
-            ctx.lineWidth = 2; // Thickness
-            ctx.stroke();
-            [lastX, lastY] = [e.offsetX, e.offsetY];
+            ctx.moveTo(x, y);
         }
 
-        canvas.addEventListener('mousedown', (e) => {
-            drawing = true;
-            [lastX, lastY] = [e.offsetX, e.offsetY];
-        });
-
-        canvas.addEventListener('mousemove', draw);
-        canvas.addEventListener('mouseup', () => drawing = false);
-        canvas.addEventListener('mouseout', () => drawing = false);
-
-        // Touch support (calculate offsets manually)
-        canvas.addEventListener('touchstart', (e) => {
-            e.preventDefault(); // Prevent scrolling
-            const touch = e.touches[0];
-            const rect = canvas.getBoundingClientRect();
-            drawing = true;
-            lastX = touch.clientX - rect.left;
-            lastY = touch.clientY - rect.top;
-        });
-
-        canvas.addEventListener('touchmove', (e) => {
+        // Draw on path
+        function addToPath(e) {
             if (!drawing) return;
-            e.preventDefault(); // Prevent scrolling
-            const touch = e.touches[0];
             const rect = canvas.getBoundingClientRect();
-            const x = touch.clientX - rect.left;
-            const y = touch.clientY - rect.top;
-            ctx.beginPath();
-            ctx.moveTo(lastX, lastY);
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            currentPath.push({ x, y });
             ctx.lineTo(x, y);
-            ctx.strokeStyle = '#000';
-            ctx.lineWidth = 2;
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = lineWidth;
             ctx.stroke();
-            [lastX, lastY] = [x, y];
+        }
+
+        // End path
+        function endPath() {
+            if (drawing) {
+                paths.push([...currentPath, { strokeColor, lineWidth }]); // Store with styles
+                currentPath = [];
+                drawing = false;
+            }
+        }
+
+        // Mouse events
+        canvas.addEventListener('mousedown', startPath);
+        canvas.addEventListener('mousemove', addToPath);
+        canvas.addEventListener('mouseup', endPath);
+        canvas.addEventListener('mouseout', endPath);
+
+        // Touch events
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            startPath({ clientX: touch.clientX, clientY: touch.clientY });
+        });
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            addToPath({ clientX: touch.clientX, clientY: touch.clientY });
+        });
+        canvas.addEventListener('touchend', endPath);
+
+        // Undo
+        undoBtn.addEventListener('click', () => {
+            if (paths.length > 0) {
+                paths.pop();
+                redraw();
+            }
         });
 
-        canvas.addEventListener('touchend', () => drawing = false);
+        // Clear All
+        clearBtn.addEventListener('click', () => {
+            paths = [];
+            redraw();
+        });
 
-        // Handle window resize (e.g., orientation change)
-        window.addEventListener('resize', drawImage);
+        // Color change
+        colorSelect.addEventListener('change', (e) => {
+            strokeColor = e.target.value;
+        });
+
+        // Thickness change
+        thicknessSelect.addEventListener('change', (e) => {
+            lineWidth = parseInt(e.target.value);
+        });
+
+        // Handle resize
+        window.addEventListener('resize', redraw);
     </script>
 </body>
 </html>
