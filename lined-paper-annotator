@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lined Paper Annotator</title>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
+        #container { position: relative; width: 100%; height: calc(100vh - 60px); }
+        #background, #drawing { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        #drawing { background: transparent; }
+        #tools {
+            position: fixed;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 8px 12px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        button {
+            margin: 0 6px;
+            padding: 8px 16px;
+            background: #eee;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover { background: #ddd; }
+        button:active { background: #ccc; }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <canvas id="background"></canvas>
+        <canvas id="drawing"></canvas>
+    </div>
+    <div id="tools">
+        <button id="pen">Pen</button>
+        <button id="eraser">Eraser</button>
+        <button id="undo">Undo</button>
+        <button id="clear">Clear All</button>
+    </div>
+
+    <script>
+        const container = document.getElementById('container');
+        const background = document.getElementById('background');
+        const bgCtx = background.getContext('2d');
+        const drawing = document.getElementById('drawing');
+        const drawCtx = drawing.getContext('2d');
+
+        const penBtn = document.getElementById('pen');
+        const eraserBtn = document.getElementById('eraser');
+        const undoBtn = document.getElementById('undo');
+        const clearBtn = document.getElementById('clear');
+
+        let history = [];
+        let currentTool = 'pen';
+
+        // === Customizable settings ===
+        const LINE_SPACING = 40;        // Increased spacing between lines (adjust as needed)
+        const LINE_COLOR = '#000000';  // Black horizontal lines
+        // Red margin line has been removed
+
+        function setTool(tool) {
+            currentTool = tool;
+            if (tool === 'pen') {
+                drawCtx.globalCompositeOperation = 'source-over';
+                drawCtx.strokeStyle = '#000000';
+                drawCtx.lineWidth = 2;
+            } else if (tool === 'eraser') {
+                drawCtx.globalCompositeOperation = 'destination-out';
+                drawCtx.lineWidth = 12;
+            }
+        }
+        setTool('pen');
+
+        penBtn.onclick = () => setTool('pen');
+        eraserBtn.onclick = () => setTool('eraser');
+
+        function drawLinedBackground(saveHistory = false) {
+            const rect = container.getBoundingClientRect();
+            const width = rect.width;
+            const height = rect.height;
+
+            // Resize canvases
+            background.width = width;
+            background.height = height;
+            drawing.width = width;
+            drawing.height = height;
+
+            // White background
+            bgCtx.fillStyle = '#ffffff';
+            bgCtx.fillRect(0, 0, width, height);
+
+            // Draw horizontal lines only
+            bgCtx.strokeStyle = LINE_COLOR;
+            bgCtx.lineWidth = 1;
+
+            for (let y = LINE_SPACING; y < height; y += LINE_SPACING) {
+                bgCtx.beginPath();
+                bgCtx.moveTo(0, y);
+                bgCtx.lineTo(width, y);
+                bgCtx.stroke();
+            }
+
+            if (saveHistory) {
+                drawCtx.clearRect(0, 0, width, height);
+                history = [drawCtx.getImageData(0, 0, width, height)];
+                updateUndoBtn();
+            }
+        }
+
+        // Initial draw
+        drawLinedBackground(true);
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            const currentState = drawCtx.getImageData(0, 0, drawing.width, drawing.height);
+            drawLinedBackground();
+            if (currentState.width === drawing.width && currentState.height === drawing.height) {
+                drawCtx.putImageData(currentState, 0, 0);
+                history.push(currentState);
+                updateUndoBtn();
+            } else {
+                history = [drawCtx.getImageData(0, 0, drawing.width, drawing.height)];
+                updateUndoBtn();
+            }
+        });
+
+        let drawingActive = false;
+        let lastX = 0, lastY = 0;
+
+        function getPos(e) {
+            const rect = drawing.getBoundingClientRect();
+            if (e.touches) {
+                return {
+                    x: e.touches[0].clientX - rect.left,
+                    y: e.touches[0].clientY - rect.top
+                };
+            }
+            return {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+        }
+
+        function startDrawing(e) {
+            drawingActive = true;
+            const pos = getPos(e);
+            lastX = pos.x;
+            lastY = pos.y;
+        }
+
+        function moveDrawing(e) {
+            if (!drawingActive) return;
+            const pos = getPos(e);
+            drawCtx.beginPath();
+            drawCtx.moveTo(lastX, lastY);
+            drawCtx.lineTo(pos.x, pos.y);
+            drawCtx.stroke();
+            [lastX, lastY] = [pos.x, pos.y];
+        }
+
+        function endDrawing() {
+            if (drawingActive) {
+                drawingActive = false;
+                history.push(drawCtx.getImageData(0, 0, drawing.width, drawing.height));
+                updateUndoBtn();
+            }
+        }
+
+        // Mouse events
+        drawing.addEventListener('mousedown', startDrawing);
+        drawing.addEventListener('mousemove', moveDrawing);
+        drawing.addEventListener('mouseup', endDrawing);
+        drawing.addEventListener('mouseout', endDrawing);
+
+        // Touch events
+        drawing.addEventListener('touchstart', e => { e.preventDefault(); startDrawing(e); });
+        drawing.addEventListener('touchmove', e => { e.preventDefault(); moveDrawing(e); });
+        drawing.addEventListener('touchend', e => { e.preventDefault(); endDrawing(); });
+
+        function undo() {
+            if (history.length > 1) {
+                history.pop();
+                drawCtx.putImageData(history[history.length - 1], 0, 0);
+                updateUndoBtn();
+            }
+        }
+
+        function clearCanvas() {
+            drawCtx.clearRect(0, 0, drawing.width, drawing.height);
+            history = [drawCtx.getImageData(0, 0, drawing.width, drawing.height)];
+            updateUndoBtn();
+        }
+
+        function updateUndoBtn() {
+            undoBtn.disabled = history.length <= 1;
+        }
+
+        undoBtn.onclick = undo;
+        clearBtn.onclick = clearCanvas;
+    </script>
+</body>
+</html>
