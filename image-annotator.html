@@ -1,20 +1,9 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image Annotator</title>
-    <style>
-        body { margin: 0; padding: 0; overflow: hidden; background: transparent; display: flex; flex-direction: column; }
-        #canvas { flex: 1; width: 100%; height: 100%; background: white; } /* White background for padded areas */
-        #tools { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 10; background: rgba(255, 255, 255, 0.8); padding: 5px; border-radius: 5px; }
-        button { margin: 0 5px; padding: 5px 10px; background: #ddd; border: none; cursor: pointer; }
-        button:hover { background: #ccc; }
-    </style>
-</head>
 <body>
-    <canvas id="canvas"></canvas>
+    <canvas id="backgroundCanvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></canvas>
+    <canvas id="drawingCanvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></canvas>
     <div id="tools">
+        <button id="draw">Draw</button>
+        <button id="eraser">Eraser</button>
         <button id="undo">Undo</button>
         <button id="clear">Clear</button>
     </div>
@@ -22,130 +11,165 @@
         const urlParams = new URLSearchParams(window.location.search);
         const imageUrl = urlParams.get('image') || 'https://via.placeholder.com/800x600'; // Fallback image
 
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
+        const bgCanvas = document.getElementById('backgroundCanvas');
+        const bgCtx = bgCanvas.getContext('2d');
+        const drawCanvas = document.getElementById('drawingCanvas');
+        const drawCtx = drawCanvas.getContext('2d');
+        const drawBtn = document.getElementById('draw');
+        const eraserBtn = document.getElementById('eraser');
         const undoBtn = document.getElementById('undo');
         const clearBtn = document.getElementById('clear');
 
-        let history = []; // Array to store canvas states for undo
+        let history = []; // Array to store drawing canvas states for undo
+        let mode = 'draw'; // Default mode: 'draw' or 'erase'
 
-        // Function to draw the image (called on load, resize, clear)
-        function drawImage(saveToHistory = false) {
-            // Resize canvas to available space (accounting for tools bar)
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight - (document.getElementById('tools').offsetHeight || 0);
+        // Function to draw the background image (called on load, resize)
+        function drawBackground() {
+            // Resize background canvas to available space (accounting for tools bar)
+            bgCanvas.width = window.innerWidth;
+            bgCanvas.height = window.innerHeight - (document.getElementById('tools').offsetHeight || 0);
 
-            // Clear canvas
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // Match drawing canvas size
+            drawCanvas.width = bgCanvas.width;
+            drawCanvas.height = bgCanvas.height;
+
+            // Clear background canvas
+            bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
 
             // Calculate scaling to fit image while preserving aspect ratio
             const imgAspect = img.width / img.height;
-            const canvasAspect = canvas.width / canvas.height;
+            const canvasAspect = bgCanvas.width / bgCanvas.height;
             let drawWidth, drawHeight, offsetX = 0, offsetY = 0;
 
             if (imgAspect > canvasAspect) {
-                drawWidth = canvas.width;
-                drawHeight = canvas.width / imgAspect;
-                offsetY = (canvas.height - drawHeight) / 2;
+                drawWidth = bgCanvas.width;
+                drawHeight = bgCanvas.width / imgAspect;
+                offsetY = (bgCanvas.height - drawHeight) / 2;
             } else {
-                drawHeight = canvas.height;
-                drawWidth = canvas.height * imgAspect;
-                offsetX = (canvas.width - drawWidth) / 2;
+                drawHeight = bgCanvas.height;
+                drawWidth = bgCanvas.height * imgAspect;
+                offsetX = (bgCanvas.width - drawWidth) / 2;
             }
 
-            // Draw scaled image, centered
-            ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
-
-            if (saveToHistory) {
-                history.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
-                updateUndoBtn();
-            }
+            // Draw scaled image, centered (with white padding if needed)
+            bgCtx.fillStyle = '#fff'; // White background for padded areas
+            bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+            bgCtx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
         }
 
         // Load the image
         const img = new Image();
         img.crossOrigin = 'anonymous'; // Handle CORS
         img.onload = () => {
-            drawImage(true); // Initial draw with history save
+            drawBackground();
+            saveInitialState(); // Save initial empty drawing state
         };
         img.src = imageUrl;
 
-        // Drawing functionality
+        // Save initial empty drawing state to history
+        function saveInitialState() {
+            history.push(drawCtx.getImageData(0, 0, drawCanvas.width, drawCanvas.height));
+            updateUndoBtn();
+        }
+
+        // Drawing/Erasing functionality
         let drawing = false;
         let lastX = 0;
         let lastY = 0;
 
         function draw(e) {
             if (!drawing) return;
-            ctx.beginPath();
-            ctx.moveTo(lastX, lastY);
-            ctx.lineTo(e.offsetX, e.offsetY);
-            ctx.strokeStyle = '#000'; // Black pen
-            ctx.lineWidth = 2; // Thickness
-            ctx.stroke();
+
+            // Set mode-specific styles
+            if (mode === 'draw') {
+                drawCtx.globalCompositeOperation = 'source-over';
+                drawCtx.strokeStyle = '#000'; // Black pen
+                drawCtx.lineWidth = 2;
+            } else if (mode === 'erase') {
+                drawCtx.globalCompositeOperation = 'destination-out';
+                drawCtx.strokeStyle = '#fff'; // Color doesn't matter for erase
+                drawCtx.lineWidth = 10; // Thicker for easier erasing (adjust as needed)
+            }
+
+            drawCtx.beginPath();
+            drawCtx.moveTo(lastX, lastY);
+            drawCtx.lineTo(e.offsetX, e.offsetY);
+            drawCtx.stroke();
             [lastX, lastY] = [e.offsetX, e.offsetY];
         }
 
-        canvas.addEventListener('mousedown', (e) => {
+        drawCanvas.addEventListener('mousedown', (e) => {
             drawing = true;
             [lastX, lastY] = [e.offsetX, e.offsetY];
         });
 
-        canvas.addEventListener('mousemove', draw);
+        drawCanvas.addEventListener('mousemove', draw);
 
-        canvas.addEventListener('mouseup', () => {
+        drawCanvas.addEventListener('mouseup', () => {
             drawing = false;
-            history.push(ctx.getImageData(0, 0, canvas.width, canvas.height)); // Save state after stroke
+            history.push(drawCtx.getImageData(0, 0, drawCanvas.width, drawCanvas.height)); // Save state after stroke
             updateUndoBtn();
         });
 
-        canvas.addEventListener('mouseout', () => drawing = false);
+        drawCanvas.addEventListener('mouseout', () => drawing = false);
 
-        // Touch support
-        canvas.addEventListener('touchstart', (e) => {
+        // Touch support (use drawing canvas)
+        drawCanvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
             const touch = e.touches[0];
-            const rect = canvas.getBoundingClientRect();
+            const rect = drawCanvas.getBoundingClientRect();
             drawing = true;
             lastX = touch.clientX - rect.left;
             lastY = touch.clientY - rect.top;
         });
 
-        canvas.addEventListener('touchmove', (e) => {
+        drawCanvas.addEventListener('touchmove', (e) => {
             if (!drawing) return;
             e.preventDefault();
             const touch = e.touches[0];
-            const rect = canvas.getBoundingClientRect();
+            const rect = drawCanvas.getBoundingClientRect();
             const x = touch.clientX - rect.left;
             const y = touch.clientY - rect.top;
-            ctx.beginPath();
-            ctx.moveTo(lastX, lastY);
-            ctx.lineTo(x, y);
-            ctx.strokeStyle = '#000';
-            ctx.lineWidth = 2;
-            ctx.stroke();
+            drawCtx.beginPath();
+            drawCtx.moveTo(lastX, lastY);
+            drawCtx.lineTo(x, y);
+            if (mode === 'draw') {
+                drawCtx.globalCompositeOperation = 'source-over';
+                drawCtx.strokeStyle = '#000';
+                drawCtx.lineWidth = 2;
+            } else if (mode === 'erase') {
+                drawCtx.globalCompositeOperation = 'destination-out';
+                drawCtx.strokeStyle = '#fff';
+                drawCtx.lineWidth = 10;
+            }
+            drawCtx.stroke();
             [lastX, lastY] = [x, y];
         });
 
-        canvas.addEventListener('touchend', () => {
+        drawCanvas.addEventListener('touchend', () => {
             drawing = false;
-            history.push(ctx.getImageData(0, 0, canvas.width, canvas.height)); // Save state after stroke
+            history.push(drawCtx.getImageData(0, 0, drawCanvas.width, drawCanvas.height)); // Save state after stroke
             updateUndoBtn();
         });
 
-        // Undo functionality
+        // Mode toggle buttons
+        drawBtn.addEventListener('click', () => mode = 'draw');
+        eraserBtn.addEventListener('click', () => mode = 'erase');
+
+        // Undo functionality (only affects drawing canvas)
         function undo() {
             if (history.length > 1) { // Keep at least the initial state
                 history.pop(); // Remove current state
-                ctx.putImageData(history[history.length - 1], 0, 0);
+                drawCtx.putImageData(history[history.length - 1], 0, 0);
                 updateUndoBtn();
             }
         }
 
-        // Clear functionality
+        // Clear functionality (only clears drawing canvas)
         function clearCanvas() {
+            drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
             history = []; // Reset history
-            drawImage(true); // Redraw original image and save initial state
+            saveInitialState(); // Save new initial state
         }
 
         // Update undo button state
@@ -158,14 +182,10 @@
 
         // Handle window resize
         window.addEventListener('resize', () => {
-            const currentState = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            drawImage();
-            ctx.putImageData(currentState, 0, 0); // Restore drawings after resize
+            const currentState = drawCtx.getImageData(0, 0, drawCanvas.width, drawCanvas.height);
+            drawBackground();
+            drawCtx.putImageData(currentState, 0, 0); // Restore drawings after resize
             history.push(currentState); // Update history
         });
     </script>
 </body>
-</html>
-    </script>
-</body>
-</html>
