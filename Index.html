@@ -1,111 +1,111 @@
-<script>
-  var canvas = document.getElementById('canvas');
-  var ctx = canvas.getContext('2d');
-  var drawing = false;
-  var paths = [];
-  var currentPath = [];
-  var lastPaths = [];  // Track last saved paths for change detection
-  var tool = 'pen';
-  var saveTimeout = null;  // For debounce
-  var AUTO_SAVE_DELAY = 5000;  // 5 seconds of inactivity
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = '#000';
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Lined Paper Annotator</title>
+  <style>
+    body { margin: 0; padding: 10px; font-family: Arial, sans-serif; }
+    canvas { border: 1px solid #ccc; background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAGmCAYAAABYIWpGAAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH5wMDFAsYqQAAAB1JREFUCFtkYGBgYGAAAAAUAASKAABjYvAAAAAASUVORK5CYII=') repeat; } /* Lined paper background */
+    .tools { margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <div class="tools">
+    <button id="penBtn">Pen</button>
+    <button id="eraserBtn">Eraser</button>
+    <button id="undoBtn">Undo</button>
+    <button id="clearBtn">Clear All</button>
+    <button id="submitBtn">Submit Solution</button>
+  </div>
+  <canvas id="canvas" width="800" height="600"></canvas>
 
-  // Event listeners for tools (unchanged)
-  document.getElementById('penBtn').addEventListener('click', () => { tool = 'pen'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2; });
-  document.getElementById('eraserBtn').addEventListener('click', () => { tool = 'eraser'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 10; });
-  document.getElementById('undoBtn').addEventListener('click', () => { paths.pop(); redraw(); scheduleAutoSave(); });
-  document.getElementById('clearBtn').addEventListener('click', () => { paths = []; currentPath = []; redraw(); scheduleAutoSave(); });
+  <script>
+    var canvas = document.getElementById('canvas');
+    var ctx = canvas.getContext('2d');
+    var drawing = false;
+    var paths = [];
+    var currentPath = [];
+    var tool = 'pen';
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#000';
 
-  // Drawing events (mouse/touch) - updated to schedule auto-save
-  canvas.addEventListener('mousedown', startDrawing);
-  canvas.addEventListener('mousemove', draw);
-  canvas.addEventListener('mouseup', stopDrawing);
-  canvas.addEventListener('mouseout', stopDrawing);
-  canvas.addEventListener('touchstart', startDrawing);
-  canvas.addEventListener('touchmove', draw);
-  canvas.addEventListener('touchend', stopDrawing);
+    // Event listeners for tools
+    document.getElementById('penBtn').addEventListener('click', () => { tool = 'pen'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2; });
+    document.getElementById('eraserBtn').addEventListener('click', () => { tool = 'eraser'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 10; });
+    document.getElementById('undoBtn').addEventListener('click', () => { paths.pop(); redraw(); });
+    document.getElementById('clearBtn').addEventListener('click', () => { paths = []; currentPath = []; redraw(); });
 
-  function startDrawing(e) {
-    if (saveTimeout) clearTimeout(saveTimeout);  // Cancel pending save during activity
-    drawing = true;
-    var pos = getPosition(e);
-    currentPath = [{ x: pos.x, y: pos.y }];
-  }
+    // Drawing events (mouse/touch)
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', stopDrawing);
+    canvas.addEventListener('mouseout', stopDrawing);
+    canvas.addEventListener('touchstart', startDrawing);
+    canvas.addEventListener('touchmove', draw);
+    canvas.addEventListener('touchend', stopDrawing);
 
-  function draw(e) {
-    if (!drawing) return;
-    var pos = getPosition(e);
-    currentPath.push({ x: pos.x, y: pos.y });
-    redraw();
-  }
-
-  function stopDrawing() {
-    if (drawing) {
-      paths.push(currentPath);
-      currentPath = [];
-      drawing = false;
-      scheduleAutoSave();  // Schedule auto-save after stopping
-    }
-  }
-
-  function scheduleAutoSave() {
-    if (saveTimeout) clearTimeout(saveTimeout);
-    saveTimeout = setTimeout(autoSave, AUTO_SAVE_DELAY);
-  }
-
-  function autoSave() {
-    // Check if paths have changed since last save
-    if (JSON.stringify(paths) === JSON.stringify(lastPaths)) {
-      return;  // No changes, skip save
+    function startDrawing(e) {
+      drawing = true;
+      var pos = getPosition(e);
+      currentPath = [{ x: pos.x, y: pos.y }];
     }
 
-    var dataURL = canvas.toDataURL('image/png');
-    var rowId = '<?!= rowId ?>';  // Injected from server
+    function draw(e) {
+      if (!drawing) return;
+      var pos = getPosition(e);
+      currentPath.push({ x: pos.x, y: pos.y });
+      redraw();
+    }
 
-    google.script.run
-      .withSuccessHandler(function(url) {
-        lastPaths = JSON.parse(JSON.stringify(paths));  // Update last saved state
-        // Optional: Show a subtle confirmation, e.g., console.log or a temporary UI message
-        console.log('Auto-saved! URL: ' + url);
-      })
-      .withFailureHandler(function(err) {
-        console.error('Auto-save error: ' + err);
-      })
-      .saveImage(dataURL, rowId);
-  }
-
-  function getPosition(e) {
-    var rect = canvas.getBoundingClientRect();
-    var clientX = e.clientX || e.touches[0].clientX;
-    var clientY = e.clientY || e.touches[0].clientY;
-    return { x: clientX - rect.left, y: clientY - rect.top };
-  }
-
-  function redraw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    paths.forEach(path => {
-      ctx.beginPath();
-      ctx.moveTo(path[0].x, path[0].y);
-      for (var i = 1; i < path.length; i++) {
-        ctx.lineTo(path[i].x, path[i].y);
+    function stopDrawing() {
+      if (drawing) {
+        paths.push(currentPath);
+        currentPath = [];
+        drawing = false;
       }
-      ctx.stroke();
+    }
+
+    function getPosition(e) {
+      var rect = canvas.getBoundingClientRect();
+      var clientX = e.clientX || e.touches[0].clientX;
+      var clientY = e.clientY || e.touches[0].clientY;
+      return { x: clientX - rect.left, y: clientY - rect.top };
+    }
+
+    function redraw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      paths.forEach(path => {
+        ctx.beginPath();
+        ctx.moveTo(path[0].x, path[0].y);
+        for (var i = 1; i < path.length; i++) {
+          ctx.lineTo(path[i].x, path[i].y);
+        }
+        ctx.stroke();
+      });
+      if (currentPath.length > 0) {
+        ctx.beginPath();
+        ctx.moveTo(currentPath[0].x, currentPath[0].y);
+        for (var i = 1; i < currentPath.length; i++) {
+          ctx.lineTo(currentPath[i].x, currentPath[i].y);
+        }
+        ctx.stroke();
+      }
+    }
+
+    // Submit button: Save to Drive and update Sheet
+    document.getElementById('submitBtn').addEventListener('click', () => {
+      var dataURL = canvas.toDataURL('image/png');
+      var rowId = '<?!= rowId ?>';  // Injected from server
+      google.script.run
+        .withSuccessHandler(function(url) {
+          alert('Solution submitted! URL: ' + url);
+          // Optional: Clear canvas after submit
+          paths = []; currentPath = []; redraw();
+        })
+        .withFailureHandler(function(err) {
+          alert('Error: ' + err);
+        })
+        .saveImage(dataURL, rowId);
     });
-    if (currentPath.length > 0) {
-      ctx.beginPath();
-      ctx.moveTo(currentPath[0].x, currentPath[0].y);
-      for (var i = 1; i < currentPath.length; i++) {
-        ctx.lineTo(currentPath[i].x, currentPath[i].y);
-      }
-      ctx.stroke();
-    }
-  }
-
-  // Submit button: Manual save (optional, but kept for immediate submit)
-  document.getElementById('submitBtn').addEventListener('click', () => {
-    if (saveTimeout) clearTimeout(saveTimeout);  // Cancel auto-save
-    autoSave();  // Trigger immediate save using the same logic
-    alert('Solution submitted manually!');
-  });
-</script>
+  </script>
+</body>
+</html>
